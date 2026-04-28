@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { BrainCircuit, Users, ArrowRight, Loader2 } from "lucide-react";
 import { useTheme } from "../ThemeContext";
 
-const SOCKET_URL = "http://localhost:4000";
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:4000";
 
 const JoinRoom = () => {
   const { roomId } = useParams();

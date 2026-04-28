@@ -13,7 +13,7 @@ import Toast from "../components/Toast";
 import { useTheme } from "../ThemeContext";
 import { v4 as uuidv4 } from "uuid";
 
-const SOCKET_URL = "http://localhost:4000";
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:4000";
 const COLORS = ["#f87171","#fb923c","#facc15","#4ade80","#60a5fa","#c084fc","#f472b6","#ffffff","#000000","#6b7280"];
 
 function randomColor() {
