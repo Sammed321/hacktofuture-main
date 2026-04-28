@@ -36,9 +36,9 @@ const [tempName, setTempName] = useState("");
   }, []);
   // SHARE
   const handleShare = (id) => {
-    const link = `${window.location.origin}/playground/${id}`;
+    const link = `${window.location.origin}/join/${id}`;
     navigator.clipboard.writeText(link);
-    alert("Link copied!"); // you can replace with your toast later
+    alert("Invite link copied! Share it with collaborators.");
   };
 
   // DELETE

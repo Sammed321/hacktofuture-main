@@ -36,11 +36,18 @@ io.on("connection", (socket) => {
 
   // --- JOIN ROOM ---
   socket.on("join-room", ({ roomId, username }) => {
+    const room = getRoom(roomId);
+
+    // Enforce 10-user limit
+    if (Object.keys(room.users).length >= 10) {
+      socket.emit("room-full");
+      return;
+    }
+
     currentRoom = roomId;
     currentUser = { id: socket.id, username: username || `User-${socket.id.slice(0, 4)}`, color: randomColor() };
 
     socket.join(roomId);
-    const room = getRoom(roomId);
     room.users[socket.id] = currentUser;
 
     // Send existing canvas state to the new joiner

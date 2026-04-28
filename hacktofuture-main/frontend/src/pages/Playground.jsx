@@ -19,7 +19,10 @@ const COLORS = ["#f87171","#fb923c","#facc15","#4ade80","#60a5fa","#c084fc","#f4
 function randomColor() {
   return COLORS[Math.floor(Math.random() * 7)];
 }
-const MY_NAME = `User-${Math.random().toString(36).slice(2, 6)}`;
+const MY_NAME = (() => {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("name") || `User-${Math.random().toString(36).slice(2, 6)}`;
+})();
 
 // ── Dot-grid background ───────────────────────────────────────────────────────
 function DotGrid({ width, height, theme, scale, offsetX, offsetY }) {
@@ -179,6 +182,10 @@ const Playground = () => {
       setCursors(prev => ({ ...prev, [userId]: { x, y, username, color } })));
     socket.on("user-left", (id) => setCursors(prev => { const n = { ...prev }; delete n[id]; return n; }));
     socket.on("users-update", (u) => setUsers(u));
+    socket.on("room-full", () => {
+      alert("This room is full (10/10 users).");
+      navigate("/dashboard");
+    });
     socket.on("draw-stroke", ({ id, points, stroke, strokeWidth: sw }) => {
       setShapes(prev => {
         const idx = prev.findIndex(s => s.id === id);
@@ -486,8 +493,9 @@ const Playground = () => {
   };
 
   const copyInviteLink = () => {
-    navigator.clipboard.writeText(window.location.href);
-    setToast({ show: true, message: "Invite link copied to clipboard!" });
+    const link = `${window.location.origin}/join/${roomId}`;
+    navigator.clipboard.writeText(link);
+    setToast({ show: true, message: "Invite link copied! Share it with up to 10 collaborators." });
   };
 
   const zoomTo = (val) => {
@@ -775,6 +783,36 @@ const Playground = () => {
           <span style={{ fontSize: "11px", color: theme.textSecondary, whiteSpace: "nowrap" }}>
             🎨 {roomId}
           </span>
+        </div>
+
+        {/* Live Collaboration Bar — top right */}
+        <div style={{ position: "absolute", top: "12px", right: "16px", zIndex: 20, display: "flex", alignItems: "center", gap: "10px" }}>
+          {/* Avatar stack */}
+          <div style={{ display: "flex", alignItems: "center" }}>
+            {users.slice(0, 8).map((u, i) => (
+              <div key={u.id} title={u.username}
+                style={{ width: "30px", height: "30px", borderRadius: "50%", background: u.color, border: `2px solid ${theme.bg}`, marginLeft: i === 0 ? 0 : "-8px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: "#fff", zIndex: users.length - i, position: "relative", cursor: "default", userSelect: "none", textTransform: "uppercase" }}>
+                {u.username?.[0] ?? "?"}
+              </div>
+            ))}
+            {users.length > 8 && (
+              <div style={{ width: "30px", height: "30px", borderRadius: "50%", background: theme.bgSecondary, border: `2px solid ${theme.border}`, marginLeft: "-8px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", fontWeight: 700, color: theme.textSecondary, zIndex: 0, position: "relative" }}>
+                +{users.length - 8}
+              </div>
+            )}
+          </div>
+
+          {/* User count pill */}
+          <div style={{ display: "flex", alignItems: "center", gap: "5px", background: theme.bgSecondary, border: `1px solid ${theme.border}`, borderRadius: "20px", padding: "4px 10px", fontSize: "12px", color: theme.textSecondary }}>
+            <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#4ade80", boxShadow: "0 0 6px #4ade80" }} />
+            {users.length}/10
+          </div>
+
+          {/* Share button */}
+          <button onClick={copyInviteLink}
+            style={{ display: "flex", alignItems: "center", gap: "6px", background: "#0070f3", color: "#fff", border: "none", padding: "7px 14px", borderRadius: "8px", fontSize: "12px", fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+            <Share2 size={13}/> Share
+          </button>
         </div>
 
         {/* Active tool badge */}
