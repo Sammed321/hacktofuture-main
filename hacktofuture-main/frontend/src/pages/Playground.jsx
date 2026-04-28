@@ -8,6 +8,7 @@ import {
   Eraser, Minus, ArrowRight, Undo2, Redo2, ZoomIn, ZoomOut,
   AlignLeft, AlignCenter, AlignRight, Bold, Italic, Underline,
   Layers, Lock, Unlock, Eye, EyeOff, Copy, Clipboard, Grid,
+  MessageCircle, Image as ImageIcon, X, ChevronDown,
 } from "lucide-react";
 import Toast from "../components/Toast";
 import { useTheme } from "../ThemeContext";
@@ -116,6 +117,106 @@ function ShapeNode({ shape, isSelected, onSelect, onChange, tool, bgColor }) {
   );
 }
 
+// ── Comment Marker (DOM overlay, not Konva) ───────────────────────────────────
+function CommentMarker({ marker, zoom, stagePos, theme, onDelete, onMove, onUpdate }) {
+  const [open, setOpen] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const dragOffset = useRef({ x: 0, y: 0 });
+
+  // canvas → screen
+  const sx = marker.x * zoom + stagePos.x;
+  const sy = marker.y * zoom + stagePos.y;
+
+  const handlePinMouseDown = (e) => {
+    e.stopPropagation();
+    if (e.button !== 0) return;
+    setDragging(true);
+    dragOffset.current = { x: e.clientX - sx, y: e.clientY - sy };
+    const onMove = (me) => {
+      const newSx = me.clientX - dragOffset.current.x;
+      const newSy = me.clientY - dragOffset.current.y;
+      const cx = (newSx - stagePos.x) / zoom;
+      const cy = (newSy - stagePos.y) / zoom;
+      onMove(marker.id, cx, cy);
+    };
+    const onUp = () => {
+      setDragging(false);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  const pinColor = marker.color || "#f59e0b";
+
+  return (
+    <div style={{ position: "absolute", left: sx, top: sy, zIndex: 100, userSelect: "none" }}>
+      {/* Pin */}
+      <div
+        onMouseDown={handlePinMouseDown}
+        onClick={(e) => { e.stopPropagation(); if (!dragging) setOpen(o => !o); }}
+        title={marker.author}
+        style={{
+          width: "32px", height: "32px", borderRadius: "50% 50% 50% 0",
+          background: pinColor, transform: "rotate(-45deg)",
+          cursor: dragging ? "grabbing" : "grab",
+          boxShadow: open ? `0 0 0 3px ${pinColor}44, 0 4px 12px rgba(0,0,0,0.4)` : "0 2px 8px rgba(0,0,0,0.3)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          transition: "box-shadow 0.15s",
+          border: `2px solid ${theme.isDark ? "#000" : "#fff"}`,
+        }}
+      >
+        <span style={{ transform: "rotate(45deg)", fontSize: "13px" }}>
+          {marker.contentType === "image" ? "🖼" : "💬"}
+        </span>
+      </div>
+
+      {/* Card popup */}
+      {open && (
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            position: "absolute", left: "38px", top: "-8px",
+            width: "240px", background: theme.bgSecondary,
+            border: `1px solid ${theme.border}`, borderRadius: "12px",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
+            overflow: "hidden", animation: "fadeIn 0.15s ease",
+          }}
+        >
+          {/* Card header */}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 12px", borderBottom: `1px solid ${theme.border}`, background: pinColor + "22" }}>
+            <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: pinColor, flexShrink: 0 }} />
+            <span style={{ fontSize: "12px", fontWeight: 700, color: theme.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {marker.author}
+            </span>
+            <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: theme.textSecondary, padding: "0", display: "flex" }}>
+              <X size={14} />
+            </button>
+            <button onClick={() => onDelete(marker.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#f87171", padding: "0", display: "flex" }} title="Delete marker">
+              <Trash2 size={14} />
+            </button>
+          </div>
+
+          {/* Card content */}
+          <div style={{ padding: "12px" }}>
+            {marker.contentType === "text" ? (
+              <p style={{ margin: 0, fontSize: "13px", color: theme.text, lineHeight: 1.5, wordBreak: "break-word" }}>
+                {marker.content}
+              </p>
+            ) : marker.contentType === "image" && marker.content ? (
+              <img src={marker.content} alt="marker"
+                style={{ width: "100%", borderRadius: "8px", display: "block", maxHeight: "160px", objectFit: "cover" }} />
+            ) : (
+              <p style={{ margin: 0, fontSize: "12px", color: theme.textSecondary, fontStyle: "italic" }}>No content</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Playground ───────────────────────────────────────────────────────────
 const Playground = () => {
   const { roomId } = useParams();
@@ -151,6 +252,10 @@ const Playground = () => {
   const [stageSize, setStageSize] = useState({ w: window.innerWidth - 260, h: window.innerHeight });
   const [eraserSize, setEraserSize] = useState(20);
   const [mousePos, setMousePos] = useState({ x: -999, y: -999 });
+  // ── comment markers ──────────────────────────────────────────────────────────
+  const [markers, setMarkers] = useState([]);
+  const [commentDropdown, setCommentDropdown] = useState(null); // { x, y } screen pos
+  const [pendingMarkerPos, setPendingMarkerPos] = useState(null); // canvas pos
   const socketRef = useRef(null);
   const stageRef = useRef(null);
   const isDrawing = useRef(false);
@@ -195,6 +300,11 @@ const Playground = () => {
         return updated;
       });
     });
+    // markers
+    socket.on("marker-add",    (m) => setMarkers(prev => [...prev, m]));
+    socket.on("marker-update", (m) => setMarkers(prev => prev.map(p => p.id === m.id ? m : p)));
+    socket.on("marker-delete", (id) => setMarkers(prev => prev.filter(p => p.id !== id)));
+    socket.on("room-state",    ({ markers: ms }) => { if (ms) setMarkers(ms); });
     return () => socket.disconnect();
   }, [roomId]);
 
@@ -293,6 +403,14 @@ const Playground = () => {
       return;
     }
     if (activeTool === "select") return;
+    if (activeTool === "comment") {
+      // show dropdown at click position
+      const stage = e.target.getStage();
+      const raw = stage.getPointerPosition();
+      setPendingMarkerPos(pos);
+      setCommentDropdown({ x: raw.x + 260, y: raw.y }); // +260 sidebar
+      return;
+    }
 
     isDrawing.current = true;
     setSelectedId(null);
@@ -509,20 +627,66 @@ const Playground = () => {
 
   const resetView = () => { setZoom(1); setStagePos({ x: 0, y: 0 }); };
 
+  // ── comment marker actions ────────────────────────────────────────────────────
+  const addMarker = (contentType, content) => {
+    if (!pendingMarkerPos) return;
+    const marker = {
+      id: uuidv4(), x: pendingMarkerPos.x, y: pendingMarkerPos.y,
+      contentType, content, author: MY_NAME,
+      color: COLORS[Math.floor(Math.random() * 7)],
+    };
+    setMarkers(prev => [...prev, marker]);
+    socketRef.current?.emit("marker-add", marker);
+    setCommentDropdown(null);
+    setPendingMarkerPos(null);
+  };
+
+  const deleteMarker = (id) => {
+    setMarkers(prev => prev.filter(m => m.id !== id));
+    socketRef.current?.emit("marker-delete", id);
+  };
+
+  const moveMarker = (id, x, y) => {
+    setMarkers(prev => prev.map(m => m.id === id ? { ...m, x, y } : m));
+    const updated = markers.find(m => m.id === id);
+    if (updated) socketRef.current?.emit("marker-update", { ...updated, x, y });
+  };
+
+  const handleAddTextMarker = () => {
+    const text = prompt("Enter comment text:");
+    if (!text?.trim()) { setCommentDropdown(null); setPendingMarkerPos(null); return; }
+    addMarker("text", text.trim());
+  };
+
+  const handleAddImageMarker = () => {
+    const input = document.createElement("input");
+    input.type = "file"; input.accept = "image/*";
+    input.onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => addMarker("image", ev.target.result);
+      reader.readAsDataURL(file);
+    };
+    input.click();
+    setCommentDropdown(null);
+  };
+
   // ── cursor style ──────────────────────────────────────────────────────────────
-  const cursorMap = { select: "default", pen: "crosshair", eraser: "none", rect: "crosshair", circle: "crosshair", line: "crosshair", arrow: "crosshair", text: "text", pan: "grab" };
+  const cursorMap = { select: "default", pen: "crosshair", eraser: "none", rect: "crosshair", circle: "crosshair", line: "crosshair", arrow: "crosshair", text: "text", pan: "grab", comment: "cell" };
   const stageCursor = isPanning ? "grabbing" : (cursorMap[activeTool] ?? "default");
 
   // ── tool definitions ──────────────────────────────────────────────────────────
   const tools = [
-    { key: "select",  icon: MousePointer2, label: "Select (V)" },
-    { key: "pen",     icon: Pencil,        label: "Pen (P)" },
-    { key: "eraser",  icon: Eraser,        label: "Eraser (E)" },
-    { key: "rect",    icon: Square,        label: "Rectangle (R)" },
-    { key: "circle",  icon: CircleIcon,    label: "Circle (C)" },
-    { key: "line",    icon: Minus,         label: "Line (L)" },
-    { key: "arrow",   icon: ArrowRight,    label: "Arrow (A)" },
-    { key: "text",    icon: Type,          label: "Text (T)" },
+    { key: "select",  icon: MousePointer2,  label: "Select (V)" },
+    { key: "pen",     icon: Pencil,         label: "Pen (P)" },
+    { key: "eraser",  icon: Eraser,         label: "Eraser (E)" },
+    { key: "rect",    icon: Square,         label: "Rectangle (R)" },
+    { key: "circle",  icon: CircleIcon,     label: "Circle (C)" },
+    { key: "line",    icon: Minus,          label: "Line (L)" },
+    { key: "arrow",   icon: ArrowRight,     label: "Arrow (A)" },
+    { key: "text",    icon: Type,           label: "Text (T)" },
+    { key: "comment", icon: MessageCircle,  label: "Comment Marker" },
   ];
 
   // ── styles ────────────────────────────────────────────────────────────────────
@@ -572,6 +736,39 @@ const Playground = () => {
           zIndex: 9999,
           transition: "width 0.1s, height 0.1s",
         }} />
+      )}
+
+      {/* Comment dropdown */}
+      {commentDropdown && (
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            position: "fixed", left: commentDropdown.x, top: commentDropdown.y,
+            zIndex: 9999, background: theme.bgSecondary,
+            border: `1px solid ${theme.border}`, borderRadius: "12px",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.35)", overflow: "hidden",
+            minWidth: "180px", animation: "fadeIn 0.15s ease",
+          }}
+        >
+          <div style={{ padding: "8px 12px", borderBottom: `1px solid ${theme.border}`, fontSize: "11px", fontWeight: 700, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.1em", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            Add Marker
+            <button onClick={() => { setCommentDropdown(null); setPendingMarkerPos(null); }} style={{ background: "none", border: "none", cursor: "pointer", color: theme.textSecondary, padding: 0, display: "flex" }}><X size={13}/></button>
+          </div>
+          <button onClick={handleAddTextMarker}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px", padding: "11px 14px", background: "none", border: "none", cursor: "pointer", color: theme.text, fontSize: "13px", fontWeight: 500, borderBottom: `1px solid ${theme.border}` }}
+            onMouseEnter={e => e.currentTarget.style.background = theme.isDark ? "#1a1a1a" : "#f5f5f5"}
+            onMouseLeave={e => e.currentTarget.style.background = "none"}
+          >
+            <MessageCircle size={16} style={{ color: "#0070f3" }} /> Add Text Comment
+          </button>
+          <button onClick={handleAddImageMarker}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px", padding: "11px 14px", background: "none", border: "none", cursor: "pointer", color: theme.text, fontSize: "13px", fontWeight: 500 }}
+            onMouseEnter={e => e.currentTarget.style.background = theme.isDark ? "#1a1a1a" : "#f5f5f5"}
+            onMouseLeave={e => e.currentTarget.style.background = "none"}
+          >
+            <ImageIcon size={16} style={{ color: "#f59e0b" }} /> Add Image
+          </button>
+        </div>
       )}
 
       {/* ── Left Sidebar ── */}
@@ -844,7 +1041,7 @@ const Playground = () => {
           onTouchStart={handleMouseDown}
           onTouchMove={handleMouseMove}
           onTouchEnd={handleMouseUp}
-          onClick={(e) => { if (e.target === e.target.getStage()) setSelectedId(null); }}
+          onClick={(e) => { if (e.target === e.target.getStage()) { setSelectedId(null); setCommentDropdown(null); setPendingMarkerPos(null); } }}
         >
           {/* Dot grid */}
           {showGrid && <DotGrid width={stageSize.w / zoom + 200} height={stageSize.h / zoom + 200} theme={theme} scale={zoom} offsetX={stagePos.x} offsetY={stagePos.y} />}
@@ -878,7 +1075,14 @@ const Playground = () => {
             })}
           </Layer>
         </Stage>
+
+        {/* Comment markers overlay */}
+        {markers.map(m => (
+          <CommentMarker key={m.id} marker={m} zoom={zoom} stagePos={stagePos} theme={theme}
+            onDelete={deleteMarker} onMove={moveMarker} onUpdate={() => {}} />
+        ))}
       </main>
+      <style>{`@keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }`}</style>
     </div>
   );
 };

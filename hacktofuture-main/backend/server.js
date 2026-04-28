@@ -14,12 +14,12 @@ const io = new Server(server, {
 });
 
 // In-memory store
-// rooms[roomId] = { shapes: [], users: {} }
+// rooms[roomId] = { shapes: [], users: {}, markers: [] }
 const rooms = {};
 
 function getRoom(roomId) {
   if (!rooms[roomId]) {
-    rooms[roomId] = { shapes: [], users: {} };
+    rooms[roomId] = { shapes: [], users: {}, markers: [] };
   }
   return rooms[roomId];
 }
@@ -51,7 +51,7 @@ io.on("connection", (socket) => {
     room.users[socket.id] = currentUser;
 
     // Send existing canvas state to the new joiner
-    socket.emit("room-state", { shapes: room.shapes, users: Object.values(room.users) });
+    socket.emit("room-state", { shapes: room.shapes, users: Object.values(room.users), markers: room.markers });
 
     // Notify others
     socket.to(roomId).emit("user-joined", currentUser);
@@ -103,6 +103,29 @@ io.on("connection", (socket) => {
   socket.on("draw-stroke", (stroke) => {
     if (!currentRoom) return;
     socket.to(currentRoom).emit("draw-stroke", stroke);
+  });
+
+  // --- MARKERS ---
+  socket.on("marker-add", (marker) => {
+    if (!currentRoom) return;
+    const room = getRoom(currentRoom);
+    room.markers.push(marker);
+    socket.to(currentRoom).emit("marker-add", marker);
+  });
+
+  socket.on("marker-update", (marker) => {
+    if (!currentRoom) return;
+    const room = getRoom(currentRoom);
+    const idx = room.markers.findIndex(m => m.id === marker.id);
+    if (idx !== -1) room.markers[idx] = marker;
+    socket.to(currentRoom).emit("marker-update", marker);
+  });
+
+  socket.on("marker-delete", (id) => {
+    if (!currentRoom) return;
+    const room = getRoom(currentRoom);
+    room.markers = room.markers.filter(m => m.id !== id);
+    socket.to(currentRoom).emit("marker-delete", id);
   });
 
   // --- DISCONNECT ---
