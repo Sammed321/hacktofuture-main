@@ -13,7 +13,7 @@ import Toast from "../components/Toast";
 import { useTheme } from "../ThemeContext";
 import { v4 as uuidv4 } from "uuid";
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:4000";
+const SOCKET_URL = "http://localhost:4000";
 const COLORS = ["#f87171","#fb923c","#facc15","#4ade80","#60a5fa","#c084fc","#f472b6","#ffffff","#000000","#6b7280"];
 
 function randomColor() {
@@ -42,7 +42,7 @@ function DotGrid({ width, height, theme, scale, offsetX, offsetY }) {
 }
 
 // ── Shape node ────────────────────────────────────────────────────────────────
-function ShapeNode({ shape, isSelected, onSelect, onChange, tool }) {
+function ShapeNode({ shape, isSelected, onSelect, onChange, tool, bgColor }) {
   const shapeRef = useRef();
   const trRef = useRef();
 
@@ -98,7 +98,7 @@ function ShapeNode({ shape, isSelected, onSelect, onChange, tool }) {
       strokeWidth={shape.strokeWidth ?? 3} tension={0.4} lineCap="round" lineJoin="round"
       globalCompositeOperation="source-over" />;
   } else if (shape.type === "eraser") {
-    node = <Line {...common} points={shape.points} stroke={shape.eraserBg ?? "#000000"}
+    node = <Line {...common} points={shape.points} stroke={bgColor}
       strokeWidth={shape.strokeWidth ?? 20} tension={0.4} lineCap="round" lineJoin="round"
       globalCompositeOperation="source-over" />;
   }
@@ -301,9 +301,8 @@ const Playground = () => {
       const shape = {
         id: uuidv4(), type: activeTool,
         points: [pos.x, pos.y],
-        stroke: activeTool === "eraser" ? theme.bg : strokeColor,
+        stroke: activeTool === "eraser" ? null : strokeColor,
         strokeWidth: activeTool === "eraser" ? eraserSize : strokeWidth,
-        eraserBg: theme.bg,
         opacity,
       };
       currentLine.current = shape;
@@ -857,7 +856,8 @@ const Playground = () => {
                 isSelected={selectedId === sh.id}
                 onSelect={setSelectedId}
                 onChange={handleShapeChange}
-                tool={activeTool} />
+                tool={activeTool}
+                bgColor={theme.bg} />
             ))}
           </Layer>
 
