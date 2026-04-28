@@ -9,6 +9,7 @@ import {
   AlignLeft, AlignCenter, AlignRight, Bold, Italic, Underline,
   Layers, Lock, Unlock, Eye, EyeOff, Copy, Clipboard, Grid,
   MessageCircle, Image as ImageIcon, X, ChevronDown,
+  Mic, MicOff, PhoneOff, Volume2,
 } from "lucide-react";
 import Toast from "../components/Toast";
 import { useTheme } from "../ThemeContext";
@@ -351,7 +352,13 @@ const Playground = () => {
   const [markers, setMarkers] = useState([]);
   const [commentDropdown, setCommentDropdown] = useState(null);
   const [pendingMarkerPos, setPendingMarkerPos] = useState(null);
-  const [modal, setModal] = useState(null); // { title, placeholder, multiline, onConfirm }
+  const [modal, setModal] = useState(null);
+  // ── voice chat ───────────────────────────────────────────────────────────────
+  const [voiceActive, setVoiceActive] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [voicePeers, setVoicePeers] = useState({}); // { socketId: { username, color, speaking } }
+  const localStreamRef = useRef(null);
+  const peerConnsRef = useRef({}); // { socketId: RTCPeerConnection } // { title, placeholder, multiline, onConfirm }
   const socketRef = useRef(null);
   const stageRef = useRef(null);
   const isDrawing = useRef(false);
@@ -404,7 +411,51 @@ const Playground = () => {
     socket.on("marker-add",    (m) => setMarkers(prev => [...prev, m]));
     socket.on("marker-update", (m) => setMarkers(prev => prev.map(p => p.id === m.id ? m : p)));
     socket.on("marker-delete", (id) => setMarkers(prev => prev.filter(p => p.id !== id)));
-    return () => socket.disconnect();
+
+    // ── WebRTC voice signaling ──────────────────────────────────────────────
+    socket.on("voice-user-joined", async ({ userId, username, color }) => {
+      setVoicePeers(prev => ({ ...prev, [userId]: { username, color } }));
+      // we are already in voice — create offer for the new peer
+      if (!localStreamRef.current) return;
+      const pc = createPeerConnection(userId, socket);
+      localStreamRef.current.getTracks().forEach(t => pc.addTrack(t, localStreamRef.current));
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit("voice-offer", { to: userId, offer });
+    });
+
+    socket.on("voice-offer", async ({ from, offer }) => {
+      setVoicePeers(prev => ({ ...prev, [from]: prev[from] || { username: from, color: "#888" } }));
+      if (!localStreamRef.current) return;
+      const pc = createPeerConnection(from, socket);
+      localStreamRef.current.getTracks().forEach(t => pc.addTrack(t, localStreamRef.current));
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit("voice-answer", { to: from, answer });
+    });
+
+    socket.on("voice-answer", async ({ from, answer }) => {
+      const pc = peerConnsRef.current[from];
+      if (pc) await pc.setRemoteDescription(new RTCSessionDescription(answer));
+    });
+
+    socket.on("voice-ice", async ({ from, candidate }) => {
+      const pc = peerConnsRef.current[from];
+      if (pc && candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
+    });
+
+    socket.on("voice-user-left", ({ userId }) => {
+      setVoicePeers(prev => { const n = { ...prev }; delete n[userId]; return n; });
+      if (peerConnsRef.current[userId]) {
+        peerConnsRef.current[userId].close();
+        delete peerConnsRef.current[userId];
+      }
+    });
+    return () => {
+      socket.disconnect();
+      stopVoice();
+    };
   }, [roomId]);
 
   // ── history helpers ──────────────────────────────────────────────────────────
@@ -717,7 +768,7 @@ const Playground = () => {
 
   const exportPNG = () => {
     const uri = stageRef.current.toDataURL({ pixelRatio: 2 });
-    const a = document.createElement("a"); a.href = uri; a.download = `synapse-${roomId}.png`; a.click();
+    const a = document.createElement("a"); a.href = uri; a.download = `sketchly-${roomId}.png`; a.click();
   };
 
   const copyInviteLink = () => {
@@ -734,6 +785,60 @@ const Playground = () => {
   };
 
   const resetView = () => { setZoom(1); setStagePos({ x: 0, y: 0 }); };
+
+  // ── WebRTC helpers ────────────────────────────────────────────────────────────
+  const createPeerConnection = (peerId, socket) => {
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+      ],
+    });
+    pc.onicecandidate = (e) => {
+      if (e.candidate) socket.emit("voice-ice", { to: peerId, candidate: e.candidate });
+    };
+    pc.ontrack = (e) => {
+      const audio = document.createElement("audio");
+      audio.srcObject = e.streams[0];
+      audio.autoplay = true;
+      audio.dataset.peerId = peerId;
+      document.body.appendChild(audio);
+    };
+    peerConnsRef.current[peerId] = pc;
+    return pc;
+  };
+
+  const startVoice = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      localStreamRef.current = stream;
+      setVoiceActive(true);
+      socketRef.current?.emit("voice-join");
+      setToast({ show: true, message: "Voice chat started — others will hear you." });
+    } catch {
+      setToast({ show: true, message: "Microphone access denied." });
+    }
+  };
+
+  const stopVoice = () => {
+    localStreamRef.current?.getTracks().forEach(t => t.stop());
+    localStreamRef.current = null;
+    Object.values(peerConnsRef.current).forEach(pc => pc.close());
+    peerConnsRef.current = {};
+    // remove injected audio elements
+    document.querySelectorAll("audio[data-peer-id]").forEach(a => a.remove());
+    setVoiceActive(false);
+    setMuted(false);
+    setVoicePeers({});
+    socketRef.current?.emit("voice-leave");
+  };
+
+  const toggleMute = () => {
+    if (!localStreamRef.current) return;
+    const enabled = !muted;
+    localStreamRef.current.getAudioTracks().forEach(t => { t.enabled = enabled; });
+    setMuted(!enabled);
+  };
 
   // ── comment marker actions ────────────────────────────────────────────────────
   const addMarker = (contentType, content) => {
@@ -902,7 +1007,7 @@ const Playground = () => {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", fontWeight: 700, color: theme.text, cursor: "pointer" }} onClick={() => navigate("/dashboard")}>
             <BrainCircuit size={18} style={{ color: "#0070f3" }} />
-            SYNAPSE <span style={{ color: theme.textSecondary, fontWeight: 400, fontSize: "12px" }}>Beta</span>
+            Sketchly <span style={{ color: theme.textSecondary, fontWeight: 400, fontSize: "12px" }}>Beta</span>
           </div>
           <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
             {isHost && <Crown size={16} style={{ color: "#F59E0B" }} />}
@@ -1081,9 +1186,49 @@ const Playground = () => {
             <button onClick={clearCanvas} style={{ ...s.iconBtn(false), color: "#f87171", borderColor: "#f87171", flex: 1, width: "auto", fontSize: "11px" }}>Clear All</button>
             <button onClick={exportPNG} style={{ ...s.iconBtn(false), flex: 1, width: "auto", fontSize: "11px", gap: "4px" }}><Download size={13}/>PNG</button>
           </div>
-          <button onClick={copyInviteLink} style={{ width: "100%", background: "#0070f3", color: "#fff", border: "none", padding: "10px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", cursor: "pointer" }}>
-            <Share2 size={14}/> Copy Invite Link
-          </button>
+
+          {/* Voice chat */}
+          {!voiceActive ? (
+            <button onClick={startVoice} style={{ width: "100%", background: "#16a34a", color: "#fff", border: "none", padding: "10px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", cursor: "pointer" }}>
+              <Mic size={15}/> Start Voice Chat
+            </button>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              {/* Active voice bar */}
+              <div style={{ background: "#16a34a18", border: "1px solid #16a34a55", borderRadius: "8px", padding: "8px 10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: voicePeers && Object.keys(voicePeers).length > 0 ? "8px" : "0" }}>
+                  <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#4ade80", boxShadow: "0 0 6px #4ade80", flexShrink: 0 }} />
+                  <span style={{ fontSize: "11px", fontWeight: 600, color: "#4ade80", flex: 1 }}>Voice Active</span>
+                  <span style={{ fontSize: "10px", color: theme.textSecondary }}>{Object.keys(voicePeers).length + 1} connected</span>
+                </div>
+                {/* Peer avatars */}
+                {Object.entries(voicePeers).length > 0 && (
+                  <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                    {/* Self */}
+                    <div title={`${MY_NAME} (you)`} style={{ width: "24px", height: "24px", borderRadius: "50%", background: "#0070f3", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", fontWeight: 700, color: "#fff", border: muted ? "2px solid #f87171" : "2px solid #4ade80", position: "relative" }}>
+                      {MY_NAME[0]?.toUpperCase()}
+                      {muted && <MicOff size={8} style={{ position: "absolute", bottom: "-2px", right: "-2px", color: "#f87171" }} />}
+                    </div>
+                    {Object.entries(voicePeers).map(([id, p]) => (
+                      <div key={id} title={p.username} style={{ width: "24px", height: "24px", borderRadius: "50%", background: p.color || "#888", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", fontWeight: 700, color: "#fff", border: "2px solid #4ade80" }}>
+                        {p.username?.[0]?.toUpperCase() ?? "?"}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {/* Controls */}
+              <div style={{ display: "flex", gap: "6px" }}>
+                <button onClick={toggleMute} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "5px", padding: "8px", borderRadius: "8px", border: `1px solid ${muted ? "#f87171" : theme.border}`, background: muted ? "#f8717122" : "transparent", color: muted ? "#f87171" : theme.textSecondary, cursor: "pointer", fontSize: "11px", fontWeight: 600 }}>
+                  {muted ? <MicOff size={13}/> : <Mic size={13}/>}
+                  {muted ? "Unmute" : "Mute"}
+                </button>
+                <button onClick={stopVoice} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "5px", padding: "8px", borderRadius: "8px", border: "1px solid #f87171", background: "#f8717122", color: "#f87171", cursor: "pointer", fontSize: "11px", fontWeight: 600 }}>
+                  <PhoneOff size={13}/> End
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </aside>
 

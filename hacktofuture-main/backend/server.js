@@ -128,6 +128,29 @@ io.on("connection", (socket) => {
     socket.to(currentRoom).emit("marker-delete", id);
   });
 
+  // --- WEBRTC SIGNALING ---
+  socket.on("voice-join", () => {
+    if (!currentRoom) return;
+    socket.to(currentRoom).emit("voice-user-joined", { userId: socket.id, ...currentUser });
+  });
+
+  socket.on("voice-offer", ({ to, offer }) => {
+    io.to(to).emit("voice-offer", { from: socket.id, offer });
+  });
+
+  socket.on("voice-answer", ({ to, answer }) => {
+    io.to(to).emit("voice-answer", { from: socket.id, answer });
+  });
+
+  socket.on("voice-ice", ({ to, candidate }) => {
+    io.to(to).emit("voice-ice", { from: socket.id, candidate });
+  });
+
+  socket.on("voice-leave", () => {
+    if (!currentRoom) return;
+    socket.to(currentRoom).emit("voice-user-left", { userId: socket.id });
+  });
+
   // --- DISCONNECT ---
   socket.on("disconnect", () => {
     if (!currentRoom) return;

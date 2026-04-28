@@ -136,7 +136,7 @@ const actionBtnStyle = {
             }}
           >
             <BrainCircuit size={24} style={{ color: theme.accent }} />
-            SYNAPSE
+            Sketchly
           </div>
           <nav
             style={{ display: "flex", flexDirection: "column", gap: "12px" }}
@@ -278,7 +278,7 @@ const actionBtnStyle = {
                   cursor: "default",
                 }}
               >
-                No projects yet. Click 'New Project' to launch Synapse.
+                No projects yet. Click 'New Project' to launch Sketchly.
               </div>
             ) : (
               history.map((proj) => (

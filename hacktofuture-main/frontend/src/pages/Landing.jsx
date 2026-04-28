@@ -39,7 +39,7 @@ const Landing = () => {
             fontWeight: 800,
           }}
         >
-          <BrainCircuit style={{ color: theme.accent }} /> SYNAPSE
+          <BrainCircuit style={{ color: theme.accent }} /> Sketchly
         </div>
         <div style={{ display: "flex", gap: "20px", alignItems: "center" }}>
           <button

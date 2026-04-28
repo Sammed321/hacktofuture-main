@@ -52,7 +52,7 @@ const JoinRoom = () => {
         {/* Logo */}
         <div style={{ display: "flex", alignItems: "center", gap: "10px", justifyContent: "center", marginBottom: "40px" }}>
           <BrainCircuit size={28} style={{ color: "#0070f3" }} />
-          <span style={{ fontSize: "22px", fontWeight: 800, color: theme.text, letterSpacing: "-0.02em" }}>SYNAPSE</span>
+          <span style={{ fontSize: "22px", fontWeight: 800, color: theme.text, letterSpacing: "-0.02em" }}>Sketchly</span>
         </div>
 
         <div style={{ background: theme.bgSecondary, border: `1px solid ${theme.border}`, borderRadius: "16px", padding: "32px" }}>
