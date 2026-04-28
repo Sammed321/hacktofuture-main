@@ -314,14 +314,17 @@ const Playground = () => {
   };
 
   const handleMouseMove = (e) => {
-    const pos = getPos(e);
-    socketRef.current?.emit("cursor-move", pos);
+    // always emit cursor position regardless of tool or drawing state
+    const stage = e.target.getStage();
+    const raw = stage.getPointerPosition();
+    const canvasPos = { x: (raw.x - stagePos.x) / zoom, y: (raw.y - stagePos.y) / zoom };
+    socketRef.current?.emit("cursor-move", canvasPos);
+
+    const pos = canvasPos;
 
     // track screen position for eraser cursor circle
     if (activeTool === "eraser") {
-      const stage = e.target.getStage();
-      const sp = stage.getPointerPosition();
-      setMousePos({ x: sp.x + 260, y: sp.y }); // +260 for sidebar offset
+      setMousePos({ x: raw.x + 260, y: raw.y });
     }
 
     if (isPanning) {
@@ -832,7 +835,12 @@ const Playground = () => {
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
-          onMouseLeave={() => { if (isDrawing.current) { isDrawing.current = false; finalizePenStroke(); } if (isPanning) setIsPanning(false); setMousePos({ x: -999, y: -999 }); }}
+          onMouseLeave={() => {
+            if (isDrawing.current) { isDrawing.current = false; finalizePenStroke(); }
+            if (isPanning) setIsPanning(false);
+            setMousePos({ x: -999, y: -999 });
+            socketRef.current?.emit("cursor-move", { x: -9999, y: -9999 });
+          }}
           onWheel={handleWheel}
           onTouchStart={handleMouseDown}
           onTouchMove={handleMouseMove}
@@ -855,13 +863,19 @@ const Playground = () => {
 
           {/* Remote cursors */}
           <Layer listening={false}>
-            {Object.entries(cursors).map(([id, c]) => (
-              <React.Fragment key={id}>
-                <Line points={[c.x, c.y, c.x + 8, c.y + 14, c.x + 4, c.y + 12, c.x + 2, c.y + 18, c.x, c.y + 14, c.x + 4, c.y + 12]}
-                  closed fill={c.color} stroke={c.color} strokeWidth={1} />
-                <Text x={c.x + 12} y={c.y + 2} text={c.username} fontSize={11} fill={c.color} fontStyle="bold" fontFamily="Inter, sans-serif" />
-              </React.Fragment>
-            ))}
+            {Object.entries(cursors).map(([id, c]) => {
+              if (c.x < -1000 || c.y < -1000) return null; // off-canvas / hidden
+              // convert canvas coords back to screen coords for this viewer
+              const sx = c.x * zoom + stagePos.x;
+              const sy = c.y * zoom + stagePos.y;
+              return (
+                <React.Fragment key={id}>
+                  <Line points={[sx, sy, sx+8, sy+14, sx+4, sy+12, sx+2, sy+18, sx, sy+14, sx+4, sy+12]}
+                    closed fill={c.color} stroke={c.color} strokeWidth={1} />
+                  <Text x={sx+12} y={sy+2} text={c.username} fontSize={11} fill={c.color} fontStyle="bold" fontFamily="Inter, sans-serif" />
+                </React.Fragment>
+              );
+            })}
           </Layer>
         </Stage>
       </main>
