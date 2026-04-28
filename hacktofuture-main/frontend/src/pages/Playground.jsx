@@ -17,6 +17,101 @@ import { v4 as uuidv4 } from "uuid";
 const SOCKET_URL = "http://localhost:4000";
 const COLORS = ["#f87171","#fb923c","#facc15","#4ade80","#60a5fa","#c084fc","#f472b6","#ffffff","#000000","#6b7280"];
 
+// ── Custom Input Modal ────────────────────────────────────────────────────────
+function InputModal({ title, placeholder, multiline = false, onConfirm, onCancel, theme }) {
+  const [value, setValue] = useState("");
+  const inputRef = useRef();
+
+  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 50); }, []);
+
+  const confirm = () => { if (value.trim()) onConfirm(value.trim()); };
+  const onKey = (e) => {
+    if (e.key === "Enter" && !multiline) confirm();
+    if (e.key === "Escape") onCancel();
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 99999,
+      background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+    }} onClick={onCancel}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: theme.bgSecondary, border: `1px solid ${theme.border}`,
+        borderRadius: "16px", padding: "28px 28px 24px",
+        width: "100%", maxWidth: "420px", boxShadow: "0 24px 64px rgba(0,0,0,0.5)",
+        fontFamily: "Inter, sans-serif", animation: "modalIn 0.18s cubic-bezier(0.22,1,0.36,1)",
+      }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#0070f3" }} />
+            <span style={{ fontSize: "15px", fontWeight: 700, color: theme.text }}>{title}</span>
+          </div>
+          <button onClick={onCancel} style={{ background: "none", border: "none", cursor: "pointer", color: theme.textSecondary, display: "flex", padding: "4px", borderRadius: "6px" }}>
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Input */}
+        {multiline ? (
+          <textarea
+            ref={inputRef}
+            value={value}
+            onChange={e => setValue(e.target.value)}
+            onKeyDown={onKey}
+            placeholder={placeholder}
+            rows={4}
+            style={{
+              width: "100%", boxSizing: "border-box", resize: "vertical",
+              background: theme.bg, border: `1.5px solid ${theme.border}`,
+              borderRadius: "10px", padding: "12px 14px", fontSize: "14px",
+              color: theme.text, outline: "none", fontFamily: "Inter, sans-serif",
+              lineHeight: 1.5, transition: "border-color 0.15s",
+            }}
+            onFocus={e => e.target.style.borderColor = "#0070f3"}
+            onBlur={e => e.target.style.borderColor = theme.border}
+          />
+        ) : (
+          <input
+            ref={inputRef}
+            type="text"
+            value={value}
+            onChange={e => setValue(e.target.value)}
+            onKeyDown={onKey}
+            placeholder={placeholder}
+            style={{
+              width: "100%", boxSizing: "border-box",
+              background: theme.bg, border: `1.5px solid ${theme.border}`,
+              borderRadius: "10px", padding: "12px 14px", fontSize: "14px",
+              color: theme.text, outline: "none", fontFamily: "Inter, sans-serif",
+              transition: "border-color 0.15s",
+            }}
+            onFocus={e => e.target.style.borderColor = "#0070f3"}
+            onBlur={e => e.target.style.borderColor = theme.border}
+          />
+        )}
+
+        {/* Buttons */}
+        <div style={{ display: "flex", gap: "10px", marginTop: "20px", justifyContent: "flex-end" }}>
+          <button onClick={onCancel} style={{
+            padding: "9px 20px", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
+            background: "transparent", border: `1px solid ${theme.border}`,
+            color: theme.textSecondary, cursor: "pointer",
+          }}>Cancel</button>
+          <button onClick={confirm} disabled={!value.trim()} style={{
+            padding: "9px 20px", borderRadius: "8px", fontSize: "13px", fontWeight: 600,
+            background: value.trim() ? "#0070f3" : theme.border,
+            border: "none", color: "#fff", cursor: value.trim() ? "pointer" : "not-allowed",
+            transition: "background 0.15s",
+          }}>Confirm</button>
+        </div>
+      </div>
+      <style>{`@keyframes modalIn { from { opacity:0; transform:scale(0.94) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }`}</style>
+    </div>
+  );
+}
+
 function randomColor() {
   return COLORS[Math.floor(Math.random() * 7)];
 }
@@ -254,8 +349,9 @@ const Playground = () => {
   const [mousePos, setMousePos] = useState({ x: -999, y: -999 });
   // ── comment markers ──────────────────────────────────────────────────────────
   const [markers, setMarkers] = useState([]);
-  const [commentDropdown, setCommentDropdown] = useState(null); // { x, y } screen pos
-  const [pendingMarkerPos, setPendingMarkerPos] = useState(null); // canvas pos
+  const [commentDropdown, setCommentDropdown] = useState(null);
+  const [pendingMarkerPos, setPendingMarkerPos] = useState(null);
+  const [modal, setModal] = useState(null); // { title, placeholder, multiline, onConfirm }
   const socketRef = useRef(null);
   const stageRef = useRef(null);
   const isDrawing = useRef(false);
@@ -278,7 +374,12 @@ const Playground = () => {
     const socket = io(SOCKET_URL);
     socketRef.current = socket;
     socket.emit("join-room", { roomId, username: MY_NAME });
-    socket.on("room-state", ({ shapes: s }) => { setShapes(s); setHistory([s]); setHistoryIdx(0); });
+    socket.on("room-state", ({ shapes: s, markers: ms }) => {
+      setShapes(s || []);
+      setHistory([s || []]);
+      setHistoryIdx(0);
+      setMarkers(ms || []);
+    });
     socket.on("shape-add", (s) => setShapes(prev => [...prev, s]));
     socket.on("shape-update", (s) => setShapes(prev => prev.map(p => p.id === s.id ? s : p)));
     socket.on("shape-delete", (id) => setShapes(prev => prev.filter(p => p.id !== id)));
@@ -300,11 +401,9 @@ const Playground = () => {
         return updated;
       });
     });
-    // markers
     socket.on("marker-add",    (m) => setMarkers(prev => [...prev, m]));
     socket.on("marker-update", (m) => setMarkers(prev => prev.map(p => p.id === m.id ? m : p)));
     socket.on("marker-delete", (id) => setMarkers(prev => prev.filter(p => p.id !== id)));
-    socket.on("room-state",    ({ markers: ms }) => { if (ms) setMarkers(ms); });
     return () => socket.disconnect();
   }, [roomId]);
 
@@ -508,9 +607,18 @@ const Playground = () => {
     } else if (activeTool === "arrow") {
       shape = { id: uuidv4(), type: "arrow", points: [start.x, start.y, pos.x, pos.y], stroke: strokeColor, strokeWidth, opacity };
     } else if (activeTool === "text") {
-      const text = prompt("Enter text:");
-      if (!text) { drawStart.current = null; return; }
-      shape = { id: uuidv4(), type: "text", x: start.x, y: start.y, text, fill: strokeColor, fontSize, bold: textBold, italic: textItalic, underline: textUnderline, align: textAlign, opacity };
+      // show custom modal instead of prompt
+      const pos2 = { ...start };
+      setModal({
+        title: "Add Text", placeholder: "Type something...",
+        onConfirm: (text) => {
+          const shape = { id: uuidv4(), type: "text", x: pos2.x, y: pos2.y, text, fill: strokeColor, fontSize, bold: textBold, italic: textItalic, underline: textUnderline, align: textAlign, opacity };
+          addShape(shape);
+          setModal(null);
+        },
+      });
+      drawStart.current = null;
+      return;
     }
 
     if (shape) addShape(shape);
@@ -647,15 +755,20 @@ const Playground = () => {
   };
 
   const moveMarker = (id, x, y) => {
-    setMarkers(prev => prev.map(m => m.id === id ? { ...m, x, y } : m));
-    const updated = markers.find(m => m.id === id);
-    if (updated) socketRef.current?.emit("marker-update", { ...updated, x, y });
+    setMarkers(prev => {
+      const updated = prev.map(m => m.id === id ? { ...m, x, y } : m);
+      const moved = updated.find(m => m.id === id);
+      if (moved) socketRef.current?.emit("marker-update", moved);
+      return updated;
+    });
   };
 
   const handleAddTextMarker = () => {
-    const text = prompt("Enter comment text:");
-    if (!text?.trim()) { setCommentDropdown(null); setPendingMarkerPos(null); return; }
-    addMarker("text", text.trim());
+    setCommentDropdown(null);
+    setModal({
+      title: "Add Comment", placeholder: "Write your comment...", multiline: true,
+      onConfirm: (text) => { addMarker("text", text); setModal(null); },
+    });
   };
 
   const handleAddImageMarker = () => {
@@ -720,6 +833,18 @@ const Playground = () => {
   return (
     <div style={{ display: "flex", height: "100vh", background: theme.bg, overflow: "hidden", fontFamily: "Inter, sans-serif" }}>
       <Toast show={toast.show} message={toast.message} theme={theme} onClose={() => setToast({ ...toast, show: false })} />
+
+      {/* Custom input modal */}
+      {modal && (
+        <InputModal
+          title={modal.title}
+          placeholder={modal.placeholder}
+          multiline={modal.multiline}
+          theme={theme}
+          onConfirm={modal.onConfirm}
+          onCancel={() => { setModal(null); setPendingMarkerPos(null); }}
+        />
+      )}
 
       {/* Eraser cursor circle */}
       {activeTool === "eraser" && (
