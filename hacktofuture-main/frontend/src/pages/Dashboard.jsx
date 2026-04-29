@@ -8,16 +8,19 @@ import {
   Settings,
   LogOut,
   Sun,
-  Moon, Check,
-} from "lucide-react";import { Share2, Trash2, Pencil } from "lucide-react";
+  Moon,
+  Check,
+  ArrowLeft,
+} from "lucide-react";
+import { Share2, Trash2, Pencil } from "lucide-react";
 import { useTheme } from "../ThemeContext";
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
   const [history, setHistory] = useState([]);
-const [editingId, setEditingId] = useState(null);
-const [tempName, setTempName] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [tempName, setTempName] = useState("");
   // Use the theme border and bg for the card style dynamically
   const cardStyle = {
     background: theme.bgSecondary,
@@ -90,18 +93,18 @@ const [tempName, setTempName] = useState("");
 
     navigate(`/playground/${roomId}?host=true`);
   };
-const actionBtnStyle = {
-  background: "transparent",
-  border: `1px solid ${theme.border}`,
-  color: theme.textSecondary,
-  padding: "6px",
-  borderRadius: "6px",
-  cursor: "pointer",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  transition: "all 0.2s ease",
-};
+  const actionBtnStyle = {
+    background: "transparent",
+    border: `1px solid ${theme.border}`,
+    color: theme.textSecondary,
+    padding: "6px",
+    borderRadius: "6px",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transition: "all 0.2s ease",
+  };
   return (
     <div
       style={{
@@ -129,12 +132,41 @@ const actionBtnStyle = {
               display: "flex",
               alignItems: "center",
               gap: "10px",
-              fontSize: "18px",
+              fontSize: "22px", /* ← CHANGE HERE: Sketchly logo font size (Dashboard sidebar) */
               fontWeight: 700,
               color: theme.text,
               marginBottom: "48px",
             }}
           >
+            {/* Back to landing */}
+            <button
+              onClick={() => navigate("/")}
+              title="Back to home"
+              style={{
+                background: "transparent",
+                border: `1px solid ${theme.border}`,
+                borderRadius: "8px",
+                width: "30px",
+                height: "30px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                color: theme.textSecondary,
+                flexShrink: 0,
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.borderColor = theme.text;
+                e.currentTarget.style.color = theme.text;
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.borderColor = theme.border;
+                e.currentTarget.style.color = theme.textSecondary;
+              }}
+            >
+              <ArrowLeft size={15} />
+            </button>
             <BrainCircuit size={24} style={{ color: theme.accent }} />
             Sketchly
           </div>
@@ -424,5 +456,5 @@ const actionBtnStyle = {
       </main>
     </div>
   );
-};;
+};
 export default Dashboard;
